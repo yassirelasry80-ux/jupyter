@@ -1,0 +1,18 @@
+WITH CalculDoublons AS (
+    SELECT *,
+        COUNT(*) OVER (PARTITION BY ID_CODE_TIERS_CRM) as nb_occurrences
+    FROM 
+        crm.tiers 
+)
+SELECT 
+    ID_CODE_TIERS_CRM,
+    ID_RAISON_SOCIALE, 
+    ID_ICE_CIN, 
+    CRD_TELEPHONE, 
+    GST_DATE_CREATION
+FROM 
+    CalculDoublons
+WHERE 
+    nb_occurrences > 1 
+ORDER BY 
+    ID_CODE_TIERS_CRM;
