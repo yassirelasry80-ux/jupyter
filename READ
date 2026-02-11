@@ -1,18 +1,43 @@
-WITH CalculDoublons AS (
-    SELECT *,
-        COUNT(*) OVER (PARTITION BY ID_CODE_TIERS_CRM) as nb_occurrences
-    FROM 
-        crm.tiers 
-)
-SELECT 
-    ID_CODE_TIERS_CRM,
-    ID_RAISON_SOCIALE, 
-    ID_ICE_CIN, 
-    CRD_TELEPHONE, 
-    GST_DATE_CREATION
-FROM 
-    CalculDoublons
-WHERE 
-    nb_occurrences > 1 
-ORDER BY 
-    ID_CODE_TIERS_CRM;
+import pandas as pd
+
+# 1. On définit toutes les colonnes à comparer (on prend tout sauf l'index si nécessaire)
+cols_a_comparer = df_dupes_id.columns.tolist()
+
+list_fusion_auto = []
+list_validation = []
+
+# 2. Groupement par l'ID commun
+for tech_id, group in df_dupes_id.groupby('ID_CODE_TIERS_CRM'):
+    
+    # On vérifie l'unicité sur l'ensemble des colonnes
+    # Si le nombre de lignes uniques est égal à 1, ce sont des copies conformes
+    if len(group.drop_duplicates()) == 1:
+        # ✅ SEMBLABLES : On garde une seule ligne pour la fusion
+        list_fusion_auto.append(group.head(1))
+    else:
+        # ⚠️ NON SEMBLABLES : On cherche où sont les écarts
+        diff_cols = []
+        for col in cols_a_comparer:
+            # nunique(dropna=False) permet de détecter si un champ est vide d'un côté et rempli de l'autre
+            if group[col].nunique(dropna=False) > 1:
+                diff_cols.append(col)
+        
+        # On crée une copie pour ne pas modifier le DF original et on note les conflits
+        group_conflit = group.copy()
+        group_conflit['CHAMPS_DIFFERENTS'] = ", ".join(diff_cols)
+        list_validation.append(group_conflit)
+
+# 3. Création des deux DataFrames de sortie
+df_pret_a_fusionner = pd.concat(list_fusion_auto).reset_index(drop=True) if list_fusion_auto else pd.DataFrame()
+df_en_attente_validation = pd.concat(list_validation).reset_index(drop=True) if list_validation else pd.DataFrame()
+
+# --- Affichage des résultats ---
+print(f"📊 Analyse terminée :")
+print(f"🔹 Lignes identiques (prêtes) : {len(df_pret_a_fusionner)}")
+print(f"🔸 Lignes avec différences : {len(df_en_attente_validation)}")
+
+if not df_en_attente_validation.empty:
+    print("\n🧐 Aperçu des différences détectées :")
+    # On affiche l'ID, la colonne des différences, puis le reste
+    cols_order = ['ID_CODE_TIERS_CRM', 'CHAMPS_DIFFERENTS'] + [c for c in cols_a_comparer if c != 'ID_CODE_TIERS_CRM']
+    display(df_en_attente_validation[cols_order].head(15))
