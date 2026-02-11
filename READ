@@ -1,43 +1,45 @@
 import pandas as pd
 
-# 1. On définit toutes les colonnes à comparer (on prend tout sauf l'index si nécessaire)
-cols_a_comparer = df_dupes_id.columns.tolist()
+# 1. Configuration des variables
+COLS_A_IGNORER = ['GST_DATE_CREATION', 'USER_MAJ'] # Ajoute ici les colonnes à ne pas comparer
+# On récupère toutes les colonnes sauf celles à ignorer et l'ID de pivot
+cols_a_comparer = [c for c in df_dupes_id.columns if c not in COLS_A_IGNORER and c != 'ID_CODE_TIERS_CRM']
 
 list_fusion_auto = []
 list_validation = []
 
-# 2. Groupement par l'ID commun
+# 2. Groupement et filtrage
 for tech_id, group in df_dupes_id.groupby('ID_CODE_TIERS_CRM'):
     
-    # On vérifie l'unicité sur l'ensemble des colonnes
-    # Si le nombre de lignes uniques est égal à 1, ce sont des copies conformes
-    if len(group.drop_duplicates()) == 1:
-        # ✅ SEMBLABLES : On garde une seule ligne pour la fusion
-        list_fusion_auto.append(group.head(1))
-    else:
-        # ⚠️ NON SEMBLABLES : On cherche où sont les écarts
-        diff_cols = []
-        for col in cols_a_comparer:
-            # nunique(dropna=False) permet de détecter si un champ est vide d'un côté et rempli de l'autre
-            if group[col].nunique(dropna=False) > 1:
-                diff_cols.append(col)
+    # CONDITION : On ne compare que si TOUTES les colonnes cibles sont NON NULL
+    # On vérifie si le groupe actuel contient des valeurs nulles dans les colonnes de comparaison
+    if group[cols_a_comparer].notnull().all().all():
         
-        # On crée une copie pour ne pas modifier le DF original et on note les conflits
-        group_conflit = group.copy()
-        group_conflit['CHAMPS_DIFFERENTS'] = ", ".join(diff_cols)
-        list_validation.append(group_conflit)
+        # On vérifie si les lignes sont identiques (semblables)
+        if len(group[cols_a_comparer].drop_duplicates()) == 1:
+            # ✅ SONT SEMBLABLES (et No Null) -> Prêt à fusionner
+            list_fusion_auto.append(group.head(1))
+        else:
+            # ⚠️ NON SEMBLABLES -> Détection des champs de différence
+            diff_cols = [col for col in cols_a_comparer if group[col].nunique() > 1]
+            
+            group_conflit = group.copy()
+            group_conflit['CHAMPS_DIFFERENTS'] = ", ".join(diff_cols)
+            list_validation.append(group_conflit)
+    else:
+        # Optionnel : On peut envoyer les groupes avec des NULL en validation aussi 
+        # ou les ignorer selon ton besoin métier. Ici, on les marque comme "Incomplets"
+        group_incomplet = group.copy()
+        group_incomplet['CHAMPS_DIFFERENTS'] = "DONNEES_MANQUANTES (NULL)"
+        list_validation.append(group_incomplet)
 
-# 3. Création des deux DataFrames de sortie
+# 3. Création des DataFrames
 df_pret_a_fusionner = pd.concat(list_fusion_auto).reset_index(drop=True) if list_fusion_auto else pd.DataFrame()
 df_en_attente_validation = pd.concat(list_validation).reset_index(drop=True) if list_validation else pd.DataFrame()
 
-# --- Affichage des résultats ---
-print(f"📊 Analyse terminée :")
-print(f"🔹 Lignes identiques (prêtes) : {len(df_pret_a_fusionner)}")
-print(f"🔸 Lignes avec différences : {len(df_en_attente_validation)}")
+# --- Affichage ---
+print(f"✅ Prêts pour fusion (Complets & Identiques) : {len(df_pret_a_fusionner)}")
+print(f"⚠️ À valider (Différences ou Valeurs Nulles) : {len(df_en_attente_validation)}")
 
 if not df_en_attente_validation.empty:
-    print("\n🧐 Aperçu des différences détectées :")
-    # On affiche l'ID, la colonne des différences, puis le reste
-    cols_order = ['ID_CODE_TIERS_CRM', 'CHAMPS_DIFFERENTS'] + [c for c in cols_a_comparer if c != 'ID_CODE_TIERS_CRM']
-    display(df_en_attente_validation[cols_order].head(15))
+    display(df_en_attente_validation[['ID_CODE_TIERS_CRM', 'CHAMPS_DIFFERENTS'] + cols_a_comparer].head(10))
