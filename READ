@@ -1,45 +1,48 @@
 import pandas as pd
 
-# 1. Configuration des variables
-COLS_A_IGNORER = ['GST_DATE_CREATION', 'USER_MAJ'] # Ajoute ici les colonnes à ne pas comparer
-# On récupère toutes les colonnes sauf celles à ignorer et l'ID de pivot
-cols_a_comparer = [c for c in df_dupes_id.columns if c not in COLS_A_IGNORER and c != 'ID_CODE_TIERS_CRM']
+# Supposons que votre DataFrame s'appelle 'df'
+col_tel = 'CRD_TELEPHONE' # Le nom exact de votre colonne
 
-list_fusion_auto = []
-list_validation = []
+# ==============================================================================
+# ÉTAPE 1 : Analyser la répétition des numéros (Data Profiling)
+# ==============================================================================
 
-# 2. Groupement et filtrage
-for tech_id, group in df_dupes_id.groupby('ID_CODE_TIERS_CRM'):
-    
-    # CONDITION : On ne compare que si TOUTES les colonnes cibles sont NON NULL
-    # On vérifie si le groupe actuel contient des valeurs nulles dans les colonnes de comparaison
-    if group[cols_a_comparer].notnull().all().all():
-        
-        # On vérifie si les lignes sont identiques (semblables)
-        if len(group[cols_a_comparer].drop_duplicates()) == 1:
-            # ✅ SONT SEMBLABLES (et No Null) -> Prêt à fusionner
-            list_fusion_auto.append(group.head(1))
-        else:
-            # ⚠️ NON SEMBLABLES -> Détection des champs de différence
-            diff_cols = [col for col in cols_a_comparer if group[col].nunique() > 1]
-            
-            group_conflit = group.copy()
-            group_conflit['CHAMPS_DIFFERENTS'] = ", ".join(diff_cols)
-            list_validation.append(group_conflit)
-    else:
-        # Optionnel : On peut envoyer les groupes avec des NULL en validation aussi 
-        # ou les ignorer selon ton besoin métier. Ici, on les marque comme "Incomplets"
-        group_incomplet = group.copy()
-        group_incomplet['CHAMPS_DIFFERENTS'] = "DONNEES_MANQUANTES (NULL)"
-        list_validation.append(group_incomplet)
+# 1. Nombre de numéros UNIQUES (Distinct)
+nb_distinct = df[col_tel].nunique()
+print(f"Nombre de numéros de téléphone distincts : {nb_distinct}")
 
-# 3. Création des DataFrames
-df_pret_a_fusionner = pd.concat(list_fusion_auto).reset_index(drop=True) if list_fusion_auto else pd.DataFrame()
-df_en_attente_validation = pd.concat(list_validation).reset_index(drop=True) if list_validation else pd.DataFrame()
+# 2. GROUP BY et COMPTE (Combien de fois chaque numéro apparait)
+# On groupe par téléphone et on compte la taille du groupe (.size())
+# reset_index(name='TOTAL_LIGNES') renomme la colonne de compte
+df_stats = df.groupby(col_tel).size().reset_index(name='TOTAL_LIGNES')
 
-# --- Affichage ---
-print(f"✅ Prêts pour fusion (Complets & Identiques) : {len(df_pret_a_fusionner)}")
-print(f"⚠️ À valider (Différences ou Valeurs Nulles) : {len(df_en_attente_validation)}")
+# 3. Trier pour voir les numéros les plus dupliqués en haut
+df_stats = df_stats.sort_values(by='TOTAL_LIGNES', ascending=False)
 
-if not df_en_attente_validation.empty:
-    display(df_en_attente_validation[['ID_CODE_TIERS_CRM', 'CHAMPS_DIFFERENTS'] + cols_a_comparer].head(10))
+print("\n--- TOP 10 DES NUMÉROS LES PLUS DUPLIQUÉS ---")
+print(df_stats.head(10))
+
+# ==============================================================================
+# ÉTAPE 2 : Afficher les détails pour un numéro spécifique (nmr)
+# ==============================================================================
+
+# Définissez ici le numéro que vous cherchez (copiez-le depuis le résultat ci-dessus)
+nmr = '0661123456'  # <--- METTRE VOTRE NUMÉRO ICI
+
+print(f"\n--- DÉTAIL DES LIGNES POUR LE NUMÉRO : {nmr} ---")
+
+# Filtrage simple
+lignes_concernees = df[df[col_tel] == nmr]
+
+# Affichage du résultat
+if not lignes_concernees.empty:
+    print(f"Il y a {len(lignes_concernees)} lignes avec ce numéro :")
+    # On affiche tout ou une sélection de colonnes utiles
+    cols_a_voir = ['ID_CODE_TIERS_CRM', 'ID_RAISON_SOCIALE', 'ID_ICE_CIN', col_tel]
+    # display() est mieux dans Jupyter, sinon utilisez print()
+    try:
+        display(lignes_concernees[cols_a_voir]) 
+    except NameError:
+        print(lignes_concernees[cols_a_voir])
+else:
+    print("Aucune ligne trouvée pour ce numéro.")
